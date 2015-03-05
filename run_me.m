@@ -9,12 +9,17 @@ DOCWORD_PATHS{1} = 'data/docword.nips.txt';
 DOCWORD_PATHS{2} = 'data/docword.kos.txt';
 VOCAB_PATHS{1} = 'data/vocab.nips.txt';
 VOCAB_PATHS{2} = 'data/vocab.kos.txt';
+DATASET_NAME{1} = 'NIPS';
+DATASET_NAME{2} = 'KOS';
 
 %% Specify burn-in
-BURN_IN_PERIOD = 100; % iterations
+BURN_IN_PERIOD = 50; % iterations
+
+%% Specify topics
+TOPICS = [2 5 10];
 
 %% Run for each topic
-for dataset = 1:2
+for dataset = 1:2 % 1 = NIPS, 2 = KOS
 
     %% Read in data
     vocabWords = textread(VOCAB_PATHS{dataset}, '%s', 'delimiter', '\n');
@@ -25,8 +30,9 @@ for dataset = 1:2
     counts = counts(4:end, :);
     
     %% Run for each topic
-    for nTopics = [2 5 10]
-
+    for nTopics = TOPICS
+        state_file = sprintf('state_dataset%d_topics%d.mat', dataset, nTopics);
+        
         %% Priors (uniform)
         alpha = ones(nTopics, 1);
         beta = ones(nVocabWords, 1);
@@ -34,53 +40,70 @@ for dataset = 1:2
         %% Inference burn in period
         
         % set up initial counts and assignments
-        topicAssignments = randi(nTopics, [nTotalWords 1]);
-        N_dk = randi(nTotalWords, [nDocs nTopics]);
-        N_kw = randi(nTotalWords, [nTopics nVocabWords]);
-        N_k = randi(nTotalWords, [nTopics 1]);
-        
-        N_dk = floor((N_dk ./ sum(sum(N_dk)))*nTotalWords);
-        N_kw = floor((N_kw ./ sum(sum(N_kw)))*nTotalWords);
-        N_k = floor((N_k ./ sum(N_k))*nTotalWords);
+        if exist(state_file, 'file')
+            % load previous state if interrupted
+            load(state_file);
+            beginning_iter = iter+1;
+        else
+            % randomly initialize topic assignment and counts
+            
+            % current topic assignment for each of the words in corpus
+            topicAssignments = randi(nTopics, [nTotalWords 1]);
+            
+            % number of words assigned to topic k in document d
+            N_dk = randi(nTotalWords, [nDocs nTopics]);
+            N_dk = floor((N_dk ./ sum(sum(N_dk)))*nTotalWords);
+            
+            % number of times word w is assigned to topic k
+            N_kw = randi(nTotalWords, [nTopics nVocabWords]);
+            N_kw = floor((N_kw ./ sum(sum(N_kw)))*nTotalWords);
+            
+            % total number of times any word is assigned to topic k
+            N_k = randi(nTotalWords, [nTopics 1]);
+            N_k = floor((N_k ./ sum(N_k))*nTotalWords);
+            
+            beginning_iter = 1;
+        end
         
         % iterate for burn-in period, then last iteration for sampling
-        for iter = 1:BURN_IN_PERIOD+1
+        for iter = beginning_iter:BURN_IN_PERIOD+1
             fprintf('iter %d...', iter);
             tic;
             for i = 1:length(topicAssignments)
-                % variables
-                doc = counts(i, 1);
-                word = counts(i, 2);
                 cnts = counts(i, 3);
-                topic = topicAssignments(i);
-                
-                % decrement counts: remove current assignment
-                N_dk(doc, topic) = max(N_dk(doc, topic)-1, 0);
-                N_kw(topic, word) = max(N_kw(topic, word)-1, 0);
-                N_k(topic) = max(N_k(topic)-1, 0);
-                
-                % compute probability of each topic assignment
-                P = zeros([nTopics 1]);
-                for k = 1:nTopics
-                    P(k) = (N_dk(doc, k) + alpha(k))...
-                        * (N_kw(k,word) + beta(word))/(N_k(k) + beta(word) * nVocabWords);
+                for j = 1:cnts
+                    % variables
+                    doc = counts(i, 1);
+                    word = counts(i, 2);
+                    topic = topicAssignments(i);
+
+                    % decrement counts: remove current assignment
+                    N_dk(doc, topic) = max(N_dk(doc, topic)-1, 0);
+                    N_kw(topic, word) = max(N_kw(topic, word)-1, 0);
+                    N_k(topic) = max(N_k(topic)-1, 0);
+
+                    % compute probability of each topic assignment
+                    P = zeros([nTopics 1]);
+                    for k = 1:nTopics
+                        P(k) = (N_dk(doc, k) + alpha(k))...
+                            * (N_kw(k,word) + beta(word))/(N_k(k) + beta(word) * nVocabWords);
+                    end
+                    P = P./sum(P);
+
+                    % sample from distribution above to assign topic
+                    topic = find(mnrnd(1, P'));
+                    topicAssignments(i) = topic;
+
+                    % update counts
+                    N_dk(doc, topic) = N_dk(doc, topic) + 1;
+                    N_kw(topic, word) = N_kw(topic, word) + 1;
+                    N_k(topic) = N_k(topic) + 1;
                 end
-                P = P./sum(P);
-                
-                % sample from distribution above to assign topic
-                topic = find(mnrnd(1, P'));
-                topicAssignments(i) = topic;
-                
-                % update counts
-                N_dk(doc, topic) = N_dk(doc, topic) + 1;
-                N_kw(topic, word) = N_kw(topic, word) + 1;
-                N_k(topic) = N_k(topic) + 1;
             end
             
             % save progress in case need to interrupt
-            if mod(iter, 10) == 0
-                save(sprintf('state_dataset%d_topics%d.mat', dataset, nTopics),...
-                    'topicAssignments', 'N_dk', 'N_kw', 'N_k', 'iter');
+            if mod(iter, 5) == 0
+                save(state_file, 'topicAssignments', 'N_dk', 'N_kw', 'N_k', 'iter');
             end
             
             fprintf(' (%fs)\n', toc);
@@ -93,6 +116,7 @@ for dataset = 1:2
                 psi(k, w) = (N_kw(k, w) + beta(w))...
                     / (N_k(k) + nVocabWords*beta(w));
             end
+            psi(k, :) = psi(k, :)./sum(psi(k, :));
         end
         
         %% Save variables
@@ -103,7 +127,7 @@ for dataset = 1:2
            psi_k = [psi(k, :); 1:nVocabWords];
            psi_k = fliplr(sortrows(psi_k', 1)');
 
-           fprintf('(Dataset="%s") Topic %d/%d:\n', VOCAB_PATHS{dataset}, k, nTopics);
+           fprintf('%s, Topic %d/%d:\n', DATASET_NAME{dataset}, k, nTopics);
            for i = 1:10
                fprintf('\t%s %f\n', vocabWords{psi_k(2, i)}, psi_k(1, i));
            end
