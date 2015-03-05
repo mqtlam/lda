@@ -13,10 +13,10 @@ DATASET_NAME{1} = 'NIPS';
 DATASET_NAME{2} = 'KOS';
 
 %% Specify burn-in
-BURN_IN_PERIOD = 50; % iterations
+BURN_IN_PERIOD = 10; % iterations
 
-%% Specify topics
-TOPICS = [2 5 10];
+%% Specify num topics
+LIST_OF_NUM_TOPICS = [2 5 10];
 
 %% Run for each topic
 for dataset = 1:2 % 1 = NIPS, 2 = KOS
@@ -24,13 +24,21 @@ for dataset = 1:2 % 1 = NIPS, 2 = KOS
     %% Read in data
     vocabWords = textread(VOCAB_PATHS{dataset}, '%s', 'delimiter', '\n');
     counts = dlmread(DOCWORD_PATHS{dataset}, ' ');
-    nDocs = counts(1,1);
-    nVocabWords = counts(2,1);
-    nTotalWords = counts(3,1);
+    nDocs = counts(1, 1);
+    nVocabWords = counts(2, 1);
     counts = counts(4:end, :);
     
+    % create corpus data structure: list of words (doc id, word id)
+    nTotalWords = sum(counts(:, 3));
+    corpus = zeros(nTotalWords, 2);
+    curr = 1;
+    for i = 1:length(counts)
+        corpus(curr:curr+counts(i, 3)-1, :) = repmat(counts(i, 1:2), [counts(i, 3) 1]);
+        curr = curr+counts(i, 3);
+    end
+    
     %% Run for each topic
-    for nTopics = TOPICS
+    for nTopics = LIST_OF_NUM_TOPICS
         state_file = sprintf('state_dataset%d_topics%d.mat', dataset, nTopics);
         
         %% Priors (uniform)
@@ -43,7 +51,7 @@ for dataset = 1:2 % 1 = NIPS, 2 = KOS
         if exist(state_file, 'file')
             % load previous state if interrupted
             load(state_file);
-            beginning_iter = iter+1;
+            beginning_iter = iter + 1;
         else
             % randomly initialize topic assignment and counts
             
@@ -70,35 +78,32 @@ for dataset = 1:2 % 1 = NIPS, 2 = KOS
             fprintf('iter %d...', iter);
             tic;
             for i = 1:length(topicAssignments)
-                cnts = counts(i, 3);
-                for j = 1:cnts
-                    % variables
-                    doc = counts(i, 1);
-                    word = counts(i, 2);
-                    topic = topicAssignments(i);
+                % variables
+                doc = corpus(i, 1);
+                word = corpus(i, 2);
+                topic = topicAssignments(i);
 
-                    % decrement counts: remove current assignment
-                    N_dk(doc, topic) = max(N_dk(doc, topic)-1, 0);
-                    N_kw(topic, word) = max(N_kw(topic, word)-1, 0);
-                    N_k(topic) = max(N_k(topic)-1, 0);
+                % decrement counts: remove current assignment
+                N_dk(doc, topic) = max(N_dk(doc, topic)-1, 0);
+                N_kw(topic, word) = max(N_kw(topic, word)-1, 0);
+                N_k(topic) = max(N_k(topic)-1, 0);
 
-                    % compute probability of each topic assignment
-                    P = zeros([nTopics 1]);
-                    for k = 1:nTopics
-                        P(k) = (N_dk(doc, k) + alpha(k))...
-                            * (N_kw(k,word) + beta(word))/(N_k(k) + beta(word) * nVocabWords);
-                    end
-                    P = P./sum(P);
-
-                    % sample from distribution above to assign topic
-                    topic = find(mnrnd(1, P'));
-                    topicAssignments(i) = topic;
-
-                    % update counts
-                    N_dk(doc, topic) = N_dk(doc, topic) + 1;
-                    N_kw(topic, word) = N_kw(topic, word) + 1;
-                    N_k(topic) = N_k(topic) + 1;
+                % compute probability of word assigned to the topics
+                P = zeros([nTopics 1]);
+                for k = 1:nTopics
+                    P(k) = (N_dk(doc, k) + alpha(k))...
+                        * (N_kw(k,word) + beta(word))/(N_k(k) + beta(word) * nVocabWords);
                 end
+                P = P./sum(P);
+
+                % sample from distribution above to assign topic
+                topic = find(mnrnd(1, P'));
+                topicAssignments(i) = topic;
+
+                % update counts
+                N_dk(doc, topic) = N_dk(doc, topic) + 1;
+                N_kw(topic, word) = N_kw(topic, word) + 1;
+                N_k(topic) = N_k(topic) + 1;
             end
             
             % save progress in case need to interrupt
