@@ -59,16 +59,24 @@ for dataset = 1:2 % 1 = NIPS, 2 = KOS
             topicAssignments = randi(nTopics, [nTotalWords 1]);
             
             % number of words assigned to topic k in document d
-            N_dk = randi(nTotalWords, [nDocs nTopics]);
-            N_dk = floor((N_dk ./ sum(sum(N_dk)))*nTotalWords);
+            N_dk = zeros([nDocs nTopics]);
             
             % number of times word w is assigned to topic k
-            N_kw = randi(nTotalWords, [nTopics nVocabWords]);
-            N_kw = floor((N_kw ./ sum(sum(N_kw)))*nTotalWords);
+            N_kw = zeros([nTopics nVocabWords]);
             
             % total number of times any word is assigned to topic k
-            N_k = randi(nTotalWords, [nTopics 1]);
-            N_k = floor((N_k ./ sum(N_k))*nTotalWords);
+            N_k = zeros([nTopics 1]);
+            
+            % populate counts
+            for i = 1:nTotalWords
+                doc = corpus(i, 1);
+                word = corpus(i, 2);
+                topic = topicAssignments(i);
+                
+                N_dk(doc, topic) = N_dk(doc, topic) + 1;
+                N_kw(topic, word) = N_kw(topic, word) + 1;
+                N_k(topic) = N_k(topic) + 1;
+            end
             
             beginning_iter = 1;
         end
