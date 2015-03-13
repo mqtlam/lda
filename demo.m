@@ -1,6 +1,4 @@
-% Assignment #4
-% CS 536, Winter 2015
-% Author: Michael Lam
+%% Latent Dirichlet Allocation Demo
 
 clear;
 
@@ -12,10 +10,10 @@ VOCAB_PATHS{2} = 'data/vocab.kos.txt';
 DATASET_NAME{1} = 'NIPS';
 DATASET_NAME{2} = 'KOS';
 
-%% Specify burn-in
-BURN_IN_PERIOD = 10; % iterations
+%% Specify burn-in period
+BURN_IN_PERIOD = 100; % iterations
 
-%% Specify num topics
+%% Specify number of topics
 LIST_OF_NUM_TOPICS = [2 5 10];
 
 %% Run for each topic
